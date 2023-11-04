@@ -13,24 +13,30 @@ const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
 const PIT_SPAWN_PROBABILITY = 0.1;
+const MAX_ZOOM = 19;
 
 const mapContainer = document.querySelector<HTMLElement>("#map")!;
 
 const map = leaflet.map(mapContainer, {
   center: MERRILL_CLASSROOM,
   zoom: GAMEPLAY_ZOOM_LEVEL,
-  minZoom: GAMEPLAY_ZOOM_LEVEL,
+  minZoom: 0,
   maxZoom: GAMEPLAY_ZOOM_LEVEL,
-  zoomControl: false,
-  scrollWheelZoom: false,
+  zoomControl: true,
+  scrollWheelZoom: true,
 });
 
+// sattelite map
 leaflet
-  .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution:
-      '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  })
+  .tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    {
+      minZoom: 0,
+      maxZoom: MAX_ZOOM,
+      attribution:
+        '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }
+  )
   .addTo(map);
 
 const playerMarker = leaflet.marker(MERRILL_CLASSROOM);
@@ -39,12 +45,18 @@ playerMarker.addTo(map);
 
 const sensorButton = document.querySelector("#sensor")!;
 sensorButton.addEventListener("click", () => {
-  navigator.geolocation.watchPosition((position) => {
-    playerMarker.setLatLng(
-      leaflet.latLng(position.coords.latitude, position.coords.longitude)
-    );
-    map.setView(playerMarker.getLatLng());
-  });
+  navigator.geolocation.watchPosition(
+    (position) => {
+      console.log("position...", position);
+      playerMarker.setLatLng(
+        leaflet.latLng(position.coords.latitude, position.coords.longitude)
+      );
+      map.setView(playerMarker.getLatLng());
+    },
+    (error) => {
+      console.log(error);
+    }
+  );
 });
 
 let points = 0;
@@ -70,15 +82,29 @@ function makePit(i: number, j: number) {
     const container = document.createElement("div");
     container.innerHTML = `
                 <div>There is a pit here at "${i},${j}". It has value <span id="value">${value}</span>.</div>
-                <button id="poke">poke</button>`;
-    const poke = container.querySelector<HTMLButtonElement>("#poke")!;
-    poke.addEventListener("click", () => {
-      value--;
+                <button id="collect">collect</button>
+                <button id="deposit">deposit</button>`;
+    const collect = container.querySelector<HTMLButtonElement>("#collect")!;
+    const deposit = container.querySelector<HTMLButtonElement>("#deposit")!;
+
+    function updateCoins(isCollection: boolean) {
+      if (isCollection && value > 0) {
+        value--;
+        points++;
+      }
+      if (!isCollection && points > 0) {
+        value++;
+        points--;
+      }
+      // update UI
       container.querySelector<HTMLSpanElement>("#value")!.innerHTML =
         value.toString();
-      points++;
       statusPanel.innerHTML = `${points} points accumulated`;
-    });
+    }
+
+    collect.addEventListener("click", () => updateCoins(true));
+    deposit.addEventListener("click", () => updateCoins(false));
+
     return container;
   });
   pit.addTo(map);

@@ -1,6 +1,6 @@
 import leaflet from "leaflet";
 
-interface Cell {
+export interface Cell {
   readonly i: number;
   readonly j: number;
 }
@@ -15,13 +15,14 @@ export class Board {
     this.tileWidth = tileWidth;
     this.tileVisibilityRadius = tileVisibilityRadius;
     this.knownCells = new Map();
-    //
   }
 
   private getCanonicalCell(cell: Cell): Cell {
     const { i, j } = cell;
     const key = [i, j].toString();
-    //
+    if (!this.knownCells.has(key)) {
+      this.knownCells.set(key, { i: i, j: j });
+    }
     return this.knownCells.get(key)!;
   }
 
@@ -33,6 +34,19 @@ export class Board {
     return leaflet.latLngBounds([
       [cell.i, cell.j],
       [cell.i + this.tileWidth, cell.j + this.tileWidth],
+    ]);
+  }
+
+  getVisibilityBounds(pos: leaflet.LatLng) {
+    return leaflet.latLngBounds([
+      [
+        pos.lat - this.tileVisibilityRadius,
+        pos.lng - this.tileVisibilityRadius,
+      ],
+      [
+        pos.lat + this.tileVisibilityRadius,
+        pos.lng + this.tileVisibilityRadius,
+      ],
     ]);
   }
 
@@ -48,6 +62,7 @@ export class Board {
       { i: originCell.i - 1, j: originCell.j + 1 }, //bottom-right diag
       { i: originCell.i + 1, j: originCell.j + 1 }, //top-right diag
     ];
+
     return resultCells;
   }
 }

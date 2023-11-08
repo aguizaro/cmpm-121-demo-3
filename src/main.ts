@@ -21,6 +21,13 @@ const MERRILL_CLASSROOM = leaflet.latLng({
 
 const mapContainer = document.querySelector<HTMLElement>("#map")!;
 const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
+let currentPits: leaflet.Rectangle[] = [];
+
+let points = 0;
+const coins: string[] = [];
+
+const playerPos = leaflet.latLng(MERRILL_CLASSROOM);
+let playerMarker = leaflet.marker(playerPos);
 
 const map = leaflet.map(mapContainer, {
   center: NULL_ISLAND,
@@ -56,37 +63,7 @@ leaflet
   )
   .addTo(map);
 
-const playerPos = leaflet.latLng(MERRILL_CLASSROOM);
-let playerMarker = leaflet.marker(playerPos);
-
-function updatePosition(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    navigator.geolocation.watchPosition(
-      (position) => {
-        playerPos.lat = position.coords.latitude;
-        playerPos.lng = position.coords.longitude;
-        resolve("success");
-      },
-      (error) => {
-        reject(error);
-      }
-    );
-  });
-}
-function updatePlayerMarker() {
-  playerMarker.remove();
-  playerMarker = leaflet.marker(playerPos);
-  playerMarker.bindTooltip("That's you!");
-  playerMarker.addTo(map);
-}
-
-// update player marker, set map view to player marker, spawn pits around player position
-function updateMap() {
-  updatePlayerMarker();
-  map.setView(playerMarker.getLatLng());
-  spawnPits(playerPos);
-}
-
+// ---------------------------------------------- Buttons --------------------------------------------------------------------------------------------
 const sensorButton = document.querySelector("#sensor")!;
 sensorButton.addEventListener("click", () => {
   updatePosition()
@@ -132,13 +109,40 @@ const messages: HTMLDivElement = document.createElement("div");
 messages.id = "messages";
 statusPanel.append(pointsDisplay, messages);
 
-let points = 0;
-const coins: string[] = [];
+// ---------------------------------------------- helper functions --------------------------------------------------------------------------------------------
+function updatePosition(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.watchPosition(
+      (position) => {
+        playerPos.lat = position.coords.latitude;
+        playerPos.lng = position.coords.longitude;
+        resolve("success");
+      },
+      (error) => {
+        reject(error);
+      }
+    );
+  });
+}
+function updatePlayerMarker() {
+  playerMarker.remove();
+  playerMarker = leaflet.marker(playerPos);
+  playerMarker.bindTooltip("You are here");
+  playerMarker.addTo(map);
+}
+
+// update player marker, set map view to player marker, spawn pits around player position
+function updateMap() {
+  updatePlayerMarker();
+  map.setView(playerMarker.getLatLng());
+  currentPits.forEach((pit) => pit.remove());
+  currentPits = [];
+  spawnPits(playerPos);
+}
 
 function makePit(cell: Cell) {
   const { i, j } = cell;
   const bounds = board.getCellBounds(cell);
-  //console.log("bounds: ", bounds);
   const localCoins: string[] = [];
   let value = Math.floor(luck([i, j, "initialValue"].toString()) * 100);
   for (let k = 0; k < value; k++) {
@@ -160,6 +164,7 @@ function makePit(cell: Cell) {
   }
 
   const pit = leaflet.rectangle(bounds, { opacity: 1 });
+  currentPits.push(pit);
   pit.bindTooltip(`${value} coins`);
   updatePitColor(pit);
   pit.bindPopup(() => {
@@ -213,8 +218,15 @@ function spawnPits(pos: leaflet.LatLng) {
       j < pos.lng + NEIGHBORHOOD_SIZE;
       j += TILE_DEGREES
     ) {
-      const cell = board.getCellforPoint(leaflet.latLng(i, j));
-      if (containsPit(cell)) makePit(cell);
+      const cellCoords = leaflet.latLng(i, j);
+      const cell = board.getCellforPoint(cellCoords);
+      //if cell contains a pit and if the pit is within view bounds, display pit on map
+      if (
+        containsPit(cell) &&
+        board.getVisibilityBounds(pos).contains(cellCoords)
+      ) {
+        makePit(cell);
+      }
     }
   }
 }
@@ -223,7 +235,18 @@ function containsPit(cell: Cell) {
   return luck([cell.i, cell.j].toString()) < PIT_SPAWN_PROBABILITY;
 }
 
+/*let testRectangle: leaflet.Rectangle = leaflet
+  .rectangle(board.getVisibilityBounds(playerPos))
+  .addTo(map);*/
+
+// ---------------------------------------------- update loop --------------------------------------------------------------------------------------------
 function update() {
+  //test to display visibility bounds
+  /*testRectangle.remove();
+  testRectangle = leaflet
+    .rectangle(board.getVisibilityBounds(playerPos))
+    .addTo(map);*/
+
   // player movement
   if (buttonisDown !== null) {
     switch (buttonisDown) {
@@ -248,5 +271,6 @@ function update() {
   requestAnimationFrame(update);
 }
 
+// ---------------------------------------------- main body --------------------------------------------------------------------------------------------
 updateMap();
 update();

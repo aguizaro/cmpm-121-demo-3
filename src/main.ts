@@ -4,11 +4,13 @@ import leaflet from "leaflet";
 import luck from "./luck";
 import "./leafletWorkaround";
 import { Cell, Board } from "./board";
+import { Coin, Geocache } from "./geocache";
 
+// ---------------------------------------------- Global Vars --------------------------------------------------------------------------------------------
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 1e-2;
-const PIT_SPAWN_PROBABILITY = 0.01;
+const BIN_SPAWN_PROBABILITY = 0.01;
 const MAX_ZOOM = 19;
 const NULL_ISLAND = leaflet.latLng({
   lat: 0,
@@ -21,13 +23,13 @@ const MERRILL_CLASSROOM = leaflet.latLng({
 
 const mapContainer = document.querySelector<HTMLElement>("#map")!;
 const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
-let currentPits: leaflet.Rectangle[] = [];
 
-let points = 0;
-const coins: string[] = [];
-
+let currentBins: leaflet.Rectangle[] = [];
+const playerCoins: Coin[] = [];
 const playerPos = leaflet.latLng(MERRILL_CLASSROOM);
 let playerMarker = leaflet.marker(playerPos);
+
+const momentos = new Map<Cell, string>();
 
 const map = leaflet.map(mapContainer, {
   center: NULL_ISLAND,
@@ -131,122 +133,104 @@ function updatePlayerMarker() {
   playerMarker.addTo(map);
 }
 
-// update player marker, set map view to player marker, spawn pits around player position
+// based on the currentt player position, update player marker, set map view to player marker, spawn bins around player position
 function updateMap() {
   updatePlayerMarker();
   map.setView(playerMarker.getLatLng());
-  currentPits.forEach((pit) => pit.remove());
-  currentPits = [];
-  spawnPits(playerPos);
+  currentBins.forEach((bin) => {
+    bin.remove();
+  });
+  currentBins = [];
+  spawnBinsAroundPoint(playerPos);
 }
 
-function makePit(cell: Cell) {
-  const { i, j } = cell;
-  const bounds = board.getCellBounds(cell);
-  const localCoins: string[] = [];
-  let value = Math.floor(luck([i, j, "initialValue"].toString()) * 100);
-  for (let k = 0; k < value; k++) {
-    localCoins.push(`${i}${j}#${k}`);
-  }
-  /*const imageUrl =
-    "https://maps.lib.utexas.edu/maps/historical/newark_nj_1922.jpg";
-  leaflet.imageOverlay(imageUrl, bounds, { opacity: 0.7 }).addTo(map); */
+function makeBin(cell: Cell) {
+  const geocache: Geocache = new Geocache(cell);
 
-  function updatePitColor(pit: leaflet.Rectangle) {
-    const minMid = 10,
-      maxMid = 30;
-    if (value <= 0) pit.setStyle({ color: "grey" });
-    if (value > 0 && value < minMid) pit.setStyle({ color: "red" });
-    if (value >= minMid && value < maxMid) pit.setStyle({ color: "yellow" });
-    if (value >= maxMid) pit.setStyle({ color: "blue" });
-
-    pit.setTooltipContent(`${value} coins`);
+  // recover state of cell if its been cached
+  if (momentos.has(cell)) {
+    geocache.fromMomento(momentos.get(cell)!);
   }
 
-  const pit = leaflet.rectangle(bounds, { opacity: 1 });
-  currentPits.push(pit);
-  pit.bindTooltip(`${value} coins`);
-  updatePitColor(pit);
-  pit.bindPopup(() => {
+  // create a virtual bin using leaflet rectangle
+  const bin = leaflet.rectangle(board.getCellBounds(cell), { opacity: 1 });
+  currentBins.push(bin);
+
+  // update color of bin based on number of coins
+  function updateBinColor() {
+    const minMid = 10;
+    const maxMid = 30;
+    const numCoins = geocache.getNumCoins();
+    if (numCoins <= 0) bin.setStyle({ color: "grey" });
+    if (numCoins > 0 && numCoins < minMid) bin.setStyle({ color: "red" });
+    if (numCoins >= minMid && numCoins < maxMid)
+      bin.setStyle({ color: "yellow" });
+    if (numCoins >= maxMid) bin.setStyle({ color: "blue" });
+
+    bin.setTooltipContent(`${numCoins} coins`);
+  }
+
+  updateBinColor();
+
+  // pop up for user to interact with the bin
+  bin.bindPopup(() => {
     const container = document.createElement("div");
+
     container.innerHTML = `
-                <div>There is a pit here at "${i},${j}". It has value <span id="value">${value}</span>.</div>
-                <button id="collect">collect</button>
-                <button id="deposit">deposit</button>`;
+      <div>There is a bin here at "${cell.i},${
+      cell.j
+    }". It has <span id="numCoins">${geocache.getNumCoins()} coins.</span>.</div>
+      <button id="collect">collect</button>
+      <button id="deposit">deposit</button>`;
+
+    function updateUI() {
+      container.querySelector<HTMLSpanElement>("#numCoins")!.innerText =
+        geocache.getNumCoins().toString();
+      pointsDisplay.innerText = `${playerCoins.length} points accumulated`;
+
+      updateBinColor();
+      momentos.set(cell, geocache.toMomento()); //cache new bin state
+    }
+
     const collect = container.querySelector<HTMLButtonElement>("#collect")!;
     const deposit = container.querySelector<HTMLButtonElement>("#deposit")!;
 
-    function updateCoins(isCollection: boolean) {
-      if (isCollection && value > 0) {
-        value--;
-        points++;
-        const popped = localCoins.pop()!;
-        coins.push(popped);
-        messages.innerText = `Collected coin: ${popped}`;
+    collect.addEventListener("click", () => {
+      const popped = geocache.removeCoin();
+      if (popped !== undefined) {
+        playerCoins.push(popped);
+        messages.innerText = `Collected coin: ${popped.toString()}`;
+        updateUI();
       }
-      if (!isCollection && points > 0) {
-        value++;
-        points--;
-        const depo = coins.pop()!;
-        localCoins.push(depo);
-        messages.innerHTML = `Depositted coin: ${depo}`;
+    });
+
+    deposit.addEventListener("click", () => {
+      const popped = playerCoins.pop();
+      if (popped !== undefined) {
+        geocache.addCoin(popped);
+        messages.innerText = `Deposited coin: ${popped.toString()}`;
       }
-      // update UI
-      container.querySelector<HTMLSpanElement>("#value")!.innerHTML =
-        value.toString();
-      pointsDisplay.innerText = `${points} points accumulated`;
-
-      updatePitColor(pit);
-    }
-
-    collect.addEventListener("click", () => updateCoins(true));
-    deposit.addEventListener("click", () => updateCoins(false));
+      updateUI();
+    });
 
     return container;
   });
-  pit.addTo(map);
+
+  bin.addTo(map);
 }
 
-function spawnPits(pos: leaflet.LatLng) {
-  for (
-    let i = pos.lat - NEIGHBORHOOD_SIZE;
-    i < pos.lat + NEIGHBORHOOD_SIZE;
-    i += TILE_DEGREES
-  ) {
-    for (
-      let j = pos.lng - NEIGHBORHOOD_SIZE;
-      j < pos.lng + NEIGHBORHOOD_SIZE;
-      j += TILE_DEGREES
-    ) {
-      const cellCoords = leaflet.latLng(i, j);
-      const cell = board.getCellforPoint(cellCoords);
-      //if cell contains a pit and if the pit is within view bounds, display pit on map
-      if (
-        containsPit(cell) &&
-        board.getVisibilityBounds(pos).contains(cellCoords)
-      ) {
-        makePit(cell);
-      }
+//if cell contains a pit and if the pit is within view bounds, display pit on map
+function spawnBinsAroundPoint(point: leaflet.LatLng) {
+  const nearbyCells = board.getCellsNearPoint(point);
+  nearbyCells.forEach((cell) => {
+    if (luck([cell.i, cell.j].toString()) < BIN_SPAWN_PROBABILITY) {
+      makeBin(cell);
     }
-  }
+  });
 }
-
-function containsPit(cell: Cell) {
-  return luck([cell.i, cell.j].toString()) < PIT_SPAWN_PROBABILITY;
-}
-
-/*let testRectangle: leaflet.Rectangle = leaflet
-  .rectangle(board.getVisibilityBounds(playerPos))
-  .addTo(map);*/
 
 // ---------------------------------------------- update loop --------------------------------------------------------------------------------------------
 function update() {
-  //test to display visibility bounds
-  /*testRectangle.remove();
-  testRectangle = leaflet
-    .rectangle(board.getVisibilityBounds(playerPos))
-    .addTo(map);*/
-
   // player movement
   if (buttonisDown !== null) {
     switch (buttonisDown) {

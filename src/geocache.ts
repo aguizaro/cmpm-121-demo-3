@@ -16,7 +16,7 @@ export class Coin {
   }
 
   toString(): string {
-    return `${this.cell.i} ${this.cell.j} ${this.serial}`;
+    return `${this.cell.i}:${this.cell.j}#${this.serial}`;
   }
 }
 
@@ -37,12 +37,16 @@ export class Geocache implements Momento<string> {
     this.currentCoins.push(coin);
   }
 
-  removeCoin(): Coin | undefined {
-    //coin: Coin) {
-    /*this.currentCoins = this.currentCoins.filter(
-      (c) => c.i !== coin.i || c.j !== coin.j || c.serial !== coin.serial
-    );*/
-    return this.currentCoins.pop();
+  removeCoin(coinName: string): Coin | undefined {
+    const removedCoin = this.currentCoins.find((coin) => {
+      return coin.toString() == coinName;
+    });
+    if (removedCoin != undefined) {
+      this.currentCoins = this.currentCoins.filter(
+        (coin) => coin != removedCoin
+      );
+    }
+    return removedCoin;
   }
 
   getNumCoins(): number {
@@ -50,9 +54,7 @@ export class Geocache implements Momento<string> {
   }
 
   getCoinNames(): string[] {
-    return this.currentCoins.map(
-      (coin) => `${coin.cell.i}:${coin.cell.j}#${coin.serial}`
-    );
+    return this.currentCoins.map((coin) => coin.toString());
   }
   toMomento(): string {
     return JSON.stringify(this);

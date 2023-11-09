@@ -175,44 +175,62 @@ function makeBin(cell: Cell) {
   // pop up for user to interact with the bin
   bin.bindPopup(() => {
     const container = document.createElement("div");
+    container.id = "pop-up-container";
 
-    container.innerHTML = `
-      <div>There is a bin here at "${cell.i},${
+    const title = document.createElement("span");
+    title.id = "pop-up-title";
+    title.innerHTML = `Bin: <span id="cellCoords">${cell.i}, ${
       cell.j
-    }". It has <span id="numCoins">${geocache.getNumCoins()} coins.</span>.</div>
-      <button id="collect">collect</button>
-      <button id="deposit">deposit</button>`;
+    }</span> contains <span id="numCoins">${geocache.getNumCoins()} coins</span>`;
+
+    const depositButton = document.createElement("button");
+    depositButton.id = "deposit-button";
+    depositButton.innerText = "Deposit";
+    const buttons = document.createElement("div");
+    buttons.id = "button-container";
 
     function updateUI() {
-      container.querySelector<HTMLSpanElement>("#numCoins")!.innerText =
-        geocache.getNumCoins().toString();
+      container.querySelector<HTMLSpanElement>(
+        "#numCoins"
+      )!.innerText = `${geocache.getNumCoins().toString()} coins`;
       pointsDisplay.innerText = `${playerCoins.length} points accumulated`;
-
       updateBinColor();
       momentos.set(cell, geocache.toMomento()); //cache new bin state
     }
 
-    const collect = container.querySelector<HTMLButtonElement>("#collect")!;
-    const deposit = container.querySelector<HTMLButtonElement>("#deposit")!;
-
-    collect.addEventListener("click", () => {
-      const popped = geocache.removeCoin();
-      if (popped !== undefined) {
-        playerCoins.push(popped);
-        messages.innerText = `Collected coin: ${popped.toString()}`;
-        updateUI();
-      }
+    //creates a single button for a coin
+    function createButton(coinName: string) {
+      const button = document.createElement("button");
+      button.innerText = coinName;
+      button.addEventListener("click", () => {
+        const popped = geocache.removeCoin(coinName);
+        if (popped !== undefined) {
+          playerCoins.push(popped);
+          messages.innerText = `Collected coin: ${popped.toString()}`;
+          button.hidden = true;
+          updateUI();
+        }
+      });
+      return button;
+    }
+    // create button for each coin
+    geocache.getCoinNames().forEach((coinName) => {
+      const button = createButton(coinName);
+      buttons.append(button);
     });
 
-    deposit.addEventListener("click", () => {
+    depositButton.addEventListener("click", () => {
       const popped = playerCoins.pop();
       if (popped !== undefined) {
         geocache.addCoin(popped);
         messages.innerText = `Deposited coin: ${popped.toString()}`;
+        const button = createButton(popped.toString());
+        buttons.append(button);
       }
       updateUI();
     });
 
+    container.append(title, depositButton, buttons);
     return container;
   });
 

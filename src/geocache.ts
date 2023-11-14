@@ -1,4 +1,4 @@
-import { Cell } from "./board";
+import { Board, Cell } from "./board";
 import luck from "./luck";
 
 interface Momento<T> {
@@ -22,9 +22,15 @@ export class Coin {
 
 export class Geocache implements Momento<string> {
   cell: Cell;
+  private board: Board;
   private currentCoins: Coin[];
-  constructor(cell: Cell) {
+  constructor(cell: Cell, board: Board, coinArray?: Coin[]) {
     this.cell = cell;
+    this.board = board;
+    if (coinArray != undefined) {
+      this.currentCoins = coinArray;
+      return this;
+    }
     this.currentCoins = [];
     const numCoins = Math.floor(
       luck([cell.i, cell.j, "initialnumCoins"].toString()) * 100
@@ -33,6 +39,27 @@ export class Geocache implements Momento<string> {
       this.addCoin(new Coin(cell, k));
     }
   }
+
+  //returns geocache obj from JSON representation
+  fromJSON(json: string): Geocache {
+    const parsedData = JSON.parse(json) as Geocache;
+    const geocache = new Geocache(
+      this.board.getCanonicalCell({
+        i: parsedData.cell.i,
+        j: parsedData.cell.j,
+      }),
+      this.board,
+      parsedData.currentCoins
+    );
+    const currentCoins: Coin[] = [];
+    geocache.currentCoins.forEach((_coin, index) =>
+      currentCoins.push(new Coin(geocache.cell, index))
+    );
+    geocache.currentCoins = currentCoins;
+
+    return geocache;
+  }
+
   addCoin(coin: Coin) {
     this.currentCoins.push(coin);
   }
@@ -56,13 +83,13 @@ export class Geocache implements Momento<string> {
   getCoinNames(): string[] {
     return this.currentCoins.map((coin) => coin.toString());
   }
+
   toMomento(): string {
     return JSON.stringify(this);
   }
 
   fromMomento(momento: string) {
-    //console.log("from momento: ", momento);
-    const recoveredGeocache = JSON.parse(momento) as Geocache;
+    const recoveredGeocache = this.fromJSON(momento);
     this.cell = recoveredGeocache.cell;
     this.currentCoins = recoveredGeocache.currentCoins;
   }

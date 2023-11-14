@@ -63,7 +63,6 @@ h1 {
   border-radius: 20px;
 }
 
-
 #pop-up-container {
   display: flex;
   flex-direction: column;
@@ -71,6 +70,10 @@ h1 {
   background-color: rgb(184, 179, 252);
   padding: 10px;
   border-radius: 20px;
+}
+
+#pop-up-title {
+  font-weight: 500;
 }
 
 #pop-up-container button {

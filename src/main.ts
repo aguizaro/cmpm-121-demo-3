@@ -1,6 +1,6 @@
 import "leaflet/dist/leaflet.css";
 import "./style.css";
-import leaflet from "leaflet";
+import leaflet, { LatLng } from "leaflet";
 import luck from "./luck";
 import "./leafletWorkaround";
 import { Cell, Board } from "./board";
@@ -25,11 +25,6 @@ const mapContainer = document.querySelector<HTMLElement>("#map")!;
 const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
 
 let currentBins: leaflet.Rectangle[] = [];
-const playerCoins: Coin[] = [];
-const playerPos = leaflet.latLng(MERRILL_CLASSROOM);
-let playerMarker = leaflet.marker(playerPos);
-
-const momentos = new Map<Cell, string>();
 
 const map = leaflet.map(mapContainer, {
   center: NULL_ISLAND,
@@ -70,7 +65,15 @@ const sensorButton = document.querySelector("#sensor")!;
 sensorButton.addEventListener("click", () => {
   updatePosition()
     .then(() => {
-      playerMarker.setLatLng(leaflet.latLng(playerPos.lat, playerPos.lng));
+      // create new polyline at new location
+      playerPaths.push([]);
+      const currentPath = playerPaths[playerPaths.length - 1];
+      currentPolyline = leaflet
+        .polyline(currentPath, {
+          color: "red",
+        })
+        .addTo(map);
+
       updateMap();
       map.setZoom(MAX_ZOOM);
     })
@@ -102,11 +105,35 @@ document.addEventListener("mouseup", () => {
 document.addEventListener("mouseleave", () => {
   buttonisDown = null;
 });
+const resetButton = document.querySelector("#reset")!;
+
+//modify this later to prompt user if they are sure
+resetButton.addEventListener("click", () => {
+  if (!window.confirm("Are you sure you want to erase all progress?")) return; //confirm with user before reset
+  localStorage.clear();
+  // reset player position and remove path history
+  playerPos = leaflet.latLng({
+    lat: 36.9995,
+    lng: -122.0533,
+  });
+
+  polylines.forEach((line) => line.remove());
+  playerPaths = [[]];
+  currentPolyline = leaflet.polyline(playerPaths, { color: "red" }).addTo(map);
+  polylines = [currentPolyline];
+
+  pointsDisplay.innerText = "No points yet...";
+  messages.innerText = "";
+  playerCoins = [];
+  momentos.clear();
+
+  updateMap();
+});
 
 const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 const pointsDisplay: HTMLDivElement = document.createElement("div");
 pointsDisplay.id = "pointsDisplay";
-pointsDisplay.innerHTML = "No points yet...";
+pointsDisplay.innerText = "No points yet...";
 const messages: HTMLDivElement = document.createElement("div");
 messages.id = "messages";
 statusPanel.append(pointsDisplay, messages);
@@ -118,6 +145,7 @@ function updatePosition(): Promise<string> {
       (position) => {
         playerPos.lat = position.coords.latitude;
         playerPos.lng = position.coords.longitude;
+
         resolve("success");
       },
       (error) => {
@@ -126,6 +154,17 @@ function updatePosition(): Promise<string> {
     );
   });
 }
+
+function addPointToPlayerPath(pos: leaflet.LatLng) {
+  // add point to player path
+  playerPaths[playerPaths.length - 1].push(leaflet.latLng(pos.lat, pos.lng));
+  currentPolyline.addLatLng(leaflet.latLng(playerPos.lat, playerPos.lng));
+
+  // save playerPos and playerPaths to local storage
+  localStorage.setItem("playerPos", JSON.stringify(playerPos));
+  localStorage.setItem("playerPaths", JSON.stringify(playerPaths));
+}
+
 function updatePlayerMarker() {
   playerMarker.remove();
   playerMarker = leaflet.marker(playerPos);
@@ -133,19 +172,22 @@ function updatePlayerMarker() {
   playerMarker.addTo(map);
 }
 
-// based on the currentt player position, update player marker, set map view to player marker, spawn bins around player position
-function updateMap() {
-  updatePlayerMarker();
-  map.setView(playerMarker.getLatLng());
+// Given a point, remove all bins from map and spawn bins around point
+function refreshBins(point: leaflet.LatLng) {
   currentBins.forEach((bin) => {
     bin.remove();
   });
   currentBins = [];
-  spawnBinsAroundPoint(playerPos);
+  const nearbyCells = board.getCellsNearPoint(point);
+  nearbyCells.forEach((cell) => {
+    if (luck([cell.i, cell.j].toString()) < BIN_SPAWN_PROBABILITY) {
+      makeBin(cell);
+    }
+  });
 }
 
 function makeBin(cell: Cell) {
-  const geocache: Geocache = new Geocache(cell);
+  const geocache: Geocache = new Geocache(cell, board);
 
   // recover state of cell if its been cached
   if (momentos.has(cell)) {
@@ -183,11 +225,23 @@ function makeBin(cell: Cell) {
       cell.j
     }</span> contains <span id="numCoins">${geocache.getNumCoins()} coins</span>`;
 
+    const buttonsContainer = document.createElement("div");
+    buttonsContainer.id = "button-container";
+
     const depositButton = document.createElement("button");
     depositButton.id = "deposit-button";
     depositButton.innerText = "Deposit";
-    const buttons = document.createElement("div");
-    buttons.id = "button-container";
+
+    depositButton.addEventListener("click", () => {
+      const popped = playerCoins.pop();
+      if (popped !== undefined) {
+        geocache.addCoin(popped);
+        messages.innerText = `Deposited coin: ${popped.toString()}`;
+        const button = createButton(popped.toString());
+        buttonsContainer.append(button);
+      }
+      updateUI();
+    });
 
     function updateUI() {
       container.querySelector<HTMLSpanElement>(
@@ -195,7 +249,14 @@ function makeBin(cell: Cell) {
       )!.innerText = `${geocache.getNumCoins().toString()} coins`;
       pointsDisplay.innerText = `${playerCoins.length} points accumulated`;
       updateBinColor();
-      momentos.set(cell, geocache.toMomento()); //cache new bin state
+
+      //cache new bin state
+      momentos.set(cell, geocache.toMomento());
+
+      // save map state to local storage
+      localStorage.setItem("momentos", JSON.stringify(Array.from(momentos)));
+      // save player coins to local storage
+      localStorage.setItem("playerCoins", JSON.stringify(playerCoins));
     }
 
     //creates a single button for a coin
@@ -216,35 +277,26 @@ function makeBin(cell: Cell) {
     // create button for each coin
     geocache.getCoinNames().forEach((coinName) => {
       const button = createButton(coinName);
-      buttons.append(button);
+      buttonsContainer.append(button);
     });
 
-    depositButton.addEventListener("click", () => {
-      const popped = playerCoins.pop();
-      if (popped !== undefined) {
-        geocache.addCoin(popped);
-        messages.innerText = `Deposited coin: ${popped.toString()}`;
-        const button = createButton(popped.toString());
-        buttons.append(button);
-      }
-      updateUI();
-    });
-
-    container.append(title, depositButton, buttons);
+    container.append(title, depositButton, buttonsContainer);
     return container;
   });
 
   bin.addTo(map);
 }
 
-//if cell contains a pit and if the pit is within view bounds, display pit on map
-function spawnBinsAroundPoint(point: leaflet.LatLng) {
-  const nearbyCells = board.getCellsNearPoint(point);
-  nearbyCells.forEach((cell) => {
-    if (luck([cell.i, cell.j].toString()) < BIN_SPAWN_PROBABILITY) {
-      makeBin(cell);
-    }
-  });
+// updates map based on playerPos and playerPath
+function updateMap() {
+  // this always adds playerPos to the path, maybe should only do this if newest point in path != playerPos
+  // as a result, every page refresh calls this function and adds the same playerPos to the playerPaths array
+  addPointToPlayerPath(playerPos);
+
+  updatePlayerMarker();
+
+  map.setView(playerMarker.getLatLng());
+  refreshBins(playerPos); // respawn bins around player
 }
 
 // ---------------------------------------------- update loop --------------------------------------------------------------------------------------------
@@ -274,5 +326,67 @@ function update() {
 }
 
 // ---------------------------------------------- main body --------------------------------------------------------------------------------------------
+// recover map state from localstorage if available
+//localStorage.clear();
+console.log("start MERILL: ", MERRILL_CLASSROOM);
+
+const momentos = new Map<Cell, string>();
+const dataString = localStorage.getItem("momentos");
+if (dataString != null) {
+  const serializedMomentos = JSON.parse(localStorage.getItem("momentos")!) as [
+    Cell,
+    string
+  ][];
+  serializedMomentos.forEach((pair: [Cell, string]) => {
+    momentos.set(board.getCanonicalCell(pair[0]), pair[1]);
+  });
+}
+
+let playerCoins: Coin[] = [];
+let playerPos: leaflet.LatLng;
+
+let playerPaths: leaflet.LatLng[][] = [[]];
+let polylines: leaflet.Polyline[] = [];
+let currentPolyline: leaflet.Polyline = leaflet.polyline([]);
+
+//recover player state from localstorage if available
+const cachedPlayerCoins = localStorage.getItem("playerCoins");
+const cachedPlayerPos = localStorage.getItem("playerPos");
+const cachedplayerPaths = localStorage.getItem("playerPaths");
+if (cachedPlayerCoins != null) {
+  playerCoins = JSON.parse(cachedPlayerCoins) as Coin[];
+  pointsDisplay.innerText = `${playerCoins.length} points accumulated`;
+  console.log("cached playerCoins: ", playerCoins);
+}
+if (cachedPlayerPos != null) {
+  playerPos = JSON.parse(cachedPlayerPos) as LatLng;
+  console.log("cached playerPos: ", playerPos);
+} else {
+  playerPos = MERRILL_CLASSROOM;
+}
+if (cachedplayerPaths != null) {
+  playerPaths = JSON.parse(cachedplayerPaths) as LatLng[][];
+
+  console.log("cached playerPaths: ", playerPaths);
+
+  //draw all paths from playerPaths
+  playerPaths.forEach((path) => {
+    polylines.push(
+      leaflet
+        .polyline(path, {
+          color: "red",
+        })
+        .addTo(map)
+    );
+    console.log("added polyline to polylines: ", path);
+  });
+  //newest polyline is stored in currentPolyline
+  currentPolyline = polylines[polylines.length - 1];
+}
+
+let playerMarker = leaflet.marker(playerPos);
+
+console.log("on start, path: ", playerPaths);
+
 updateMap();
 update();

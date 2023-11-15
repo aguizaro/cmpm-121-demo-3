@@ -192,36 +192,67 @@ function refreshBins(point: leaflet.LatLng) {
   });
 }
 
-function makeBin(cell: Cell) {
-  const geocache: Geocache = new Geocache(cell, board);
+// updates map based on playerPos and playerPath
+function updateMap() {
+  addPointToPlayerPath(playerPos);
+  updatePlayerMarker();
+  map.setView(playerMarker.getLatLng());
+  refreshBins(playerPos); // respawn bins around player
+}
 
-  // recover state of geocache if its been cached
-  if (momentos.has(cell)) {
-    geocache.fromMomento(momentos.get(cell)!);
-  }
+// update color of bin based on number of coins
+function updateBinColor(bin: leaflet.Rectangle, geocache: Geocache) {
+  const minMid = 5;
+  const maxMid = 10;
+  const numCoins = geocache.getNumCoins();
+  if (numCoins <= 0) bin.setStyle({ color: "red" });
+  if (numCoins > 0 && numCoins < minMid) bin.setStyle({ color: "blue" });
+  if (numCoins >= minMid && numCoins < maxMid) bin.setStyle({ color: "lime" });
+  if (numCoins >= maxMid) bin.setStyle({ color: "cyan" });
 
-  // create a virtual bin using leaflet rectangle
-  const bin = leaflet.rectangle(board.getCellBounds(cell), { opacity: 1 });
-  currentBins.push(bin);
+  bin.setTooltipContent(`${numCoins} coins`);
+}
 
-  // update color of bin based on number of coins
-  function updateBinColor() {
-    const minMid = 5;
-    const maxMid = 10;
-    const numCoins = geocache.getNumCoins();
-    if (numCoins <= 0) bin.setStyle({ color: "red" });
-    if (numCoins > 0 && numCoins < minMid) bin.setStyle({ color: "blue" });
-    if (numCoins >= minMid && numCoins < maxMid)
-      bin.setStyle({ color: "lime" });
-    if (numCoins >= maxMid) bin.setStyle({ color: "cyan" });
+function updateUI(container: HTMLDivElement, cell: Cell, geocache: Geocache) {
+  container.querySelector<HTMLSpanElement>("#numCoins")!.innerText = `${geocache
+    .getNumCoins()
+    .toString()} coins`;
+  pointsDisplay.innerText = `${playerCoins.length} points accumulated`;
 
-    bin.setTooltipContent(`${numCoins} coins`);
-  }
+  //cache new bin state
+  momentos.set(cell, geocache.toMomento());
 
-  updateBinColor();
+  // save map state to local storage
+  localStorage.setItem("momentos", JSON.stringify(Array.from(momentos)));
+  // save player coins to local storage
+  localStorage.setItem("playerCoins", JSON.stringify(playerCoins));
+}
 
-  // pop up for user to interact with the bin
-  bin.bindPopup(() => {
+//creates a single button for a coin
+function createButton(
+  coinName: string,
+  container: HTMLDivElement,
+  cell: Cell,
+  bin: leaflet.Rectangle,
+  geocache: Geocache
+) {
+  const button = document.createElement("button");
+  button.innerText = coinName;
+  button.addEventListener("click", () => {
+    const popped = geocache.removeCoin(coinName);
+    if (popped !== undefined) {
+      playerCoins.push(popped);
+      messages.innerText = `Collected coin: ${popped.toString()}`;
+      button.hidden = true;
+      updateUI(container, cell, geocache);
+      updateBinColor(bin, geocache);
+    }
+  });
+  return button;
+}
+
+function createPopUp(cell: Cell, bin: leaflet.Rectangle, geocache: Geocache) {
+  {
     const container = document.createElement("div");
     container.id = "pop-up-container";
 
@@ -243,65 +274,51 @@ function makeBin(cell: Cell) {
       if (popped !== undefined) {
         geocache.addCoin(popped);
         messages.innerText = `Deposited coin: ${popped.toString()}`;
-        const button = createButton(popped.toString());
+        const button = createButton(
+          popped.toString(),
+          container,
+          cell,
+          bin,
+          geocache
+        );
         buttonsContainer.prepend(button);
       }
-      updateUI();
+      updateUI(container, cell, geocache);
+      updateBinColor(bin, geocache);
     });
 
-    function updateUI() {
-      container.querySelector<HTMLSpanElement>(
-        "#numCoins"
-      )!.innerText = `${geocache.getNumCoins().toString()} coins`;
-      pointsDisplay.innerText = `${playerCoins.length} points accumulated`;
-      updateBinColor();
-
-      //cache new bin state
-      momentos.set(cell, geocache.toMomento());
-
-      // save map state to local storage
-      localStorage.setItem("momentos", JSON.stringify(Array.from(momentos)));
-      // save player coins to local storage
-      localStorage.setItem("playerCoins", JSON.stringify(playerCoins));
-    }
-
-    //creates a single button for a coin
-    function createButton(coinName: string) {
-      const button = document.createElement("button");
-      button.innerText = coinName;
-      button.addEventListener("click", () => {
-        const popped = geocache.removeCoin(coinName);
-        if (popped !== undefined) {
-          playerCoins.push(popped);
-          messages.innerText = `Collected coin: ${popped.toString()}`;
-          button.hidden = true;
-          updateUI();
-        }
-      });
-      return button;
-    }
     // create button for each coin
     geocache
       .getCoinNames()
       .reverse()
       .forEach((coinName) => {
-        const button = createButton(coinName);
+        const button = createButton(coinName, container, cell, bin, geocache);
         buttonsContainer.append(button);
       });
 
     container.append(title, depositButton, buttonsContainer);
     return container;
-  });
-
-  bin.addTo(map);
+  }
 }
 
-// updates map based on playerPos and playerPath
-function updateMap() {
-  addPointToPlayerPath(playerPos);
-  updatePlayerMarker();
-  map.setView(playerMarker.getLatLng());
-  refreshBins(playerPos); // respawn bins around player
+function makeBin(cell: Cell) {
+  const geocache: Geocache = new Geocache(cell, board);
+
+  // recover state of geocache if its been cached
+  if (momentos.has(cell)) {
+    geocache.fromMomento(momentos.get(cell)!);
+  }
+
+  // create a virtual bin using leaflet rectangle
+  const bin = leaflet.rectangle(board.getCellBounds(cell), { opacity: 1 });
+  currentBins.push(bin);
+
+  updateBinColor(bin, geocache);
+
+  // pop up for user to interact with the bin
+  bin.bindPopup(() => createPopUp(cell, bin, geocache));
+
+  bin.addTo(map);
 }
 
 // ---------------------------------------------- update loop --------------------------------------------------------------------------------------------

@@ -62,23 +62,11 @@ leaflet
 // ---------------------------------------------- Buttons --------------------------------------------------------------------------------------------
 const sensorButton = document.querySelector("#sensor")!;
 sensorButton.addEventListener("click", () => {
-  updatePosition()
-    .then(() => {
-      // create new empty polyline
-      playerPaths.push([]);
-      const currentPath = playerPaths[playerPaths.length - 1];
-      currentPolyline = leaflet
-        .polyline(currentPath, {
-          color: "red",
-        })
-        .addTo(map);
-
-      updateMap();
-      map.setZoom(MAX_ZOOM);
-    })
-    .catch(() => {
-      console.error();
-    });
+  drawLivePosition();
+});
+sensorButton.addEventListener("touchstart", (e) => {
+  e.preventDefault();
+  drawLivePosition();
 });
 
 let buttonisDown: "north" | "south" | "west" | "east" | null = null;
@@ -116,25 +104,7 @@ document.addEventListener("mouseleave", () => {
 const resetButton = document.querySelector("#reset")!;
 
 resetButton.addEventListener("click", () => {
-  if (!window.confirm("Are you sure you want to erase all progress?")) return; //confirm with user before reset
-  localStorage.clear();
-
-  // not using MERILL_CLASSROOM here to avoid bug of playerPos not being set to correct coords
-  playerPos = leaflet.latLng({
-    lat: 36.9995,
-    lng: -122.0533,
-  });
-
-  polylines.forEach((line) => line.remove());
-  playerPaths = [[]];
-  currentPolyline = leaflet.polyline(playerPaths, { color: "red" }).addTo(map);
-  polylines = [currentPolyline];
-
-  pointsDisplay.innerText = "No points yet...";
-  messages.innerText = "";
-  playerCoins = [];
-  momentos.clear();
-
+  resetMap();
   updateMap();
 });
 
@@ -160,6 +130,27 @@ function updatePosition(): Promise<string> {
       }
     );
   });
+}
+
+// get current live pos and draw it on the map
+function drawLivePosition() {
+  updatePosition()
+    .then(() => {
+      // create new empty polyline
+      playerPaths.push([]);
+      const currentPath = playerPaths[playerPaths.length - 1];
+      currentPolyline = leaflet
+        .polyline(currentPath, {
+          color: "red",
+        })
+        .addTo(map);
+
+      updateMap();
+      map.setZoom(MAX_ZOOM);
+    })
+    .catch(() => {
+      console.error();
+    });
 }
 
 function addPointToPlayerPath(pos: leaflet.LatLng) {
@@ -200,7 +191,29 @@ function updateMap() {
   refreshBins(playerPos); // respawn bins around player
 }
 
-// update color of bin based on number of coins
+// resets all caches and deletes all data in localstorage
+function resetMap() {
+  if (!window.confirm("Are you sure you want to erase all progress?")) return; //confirm with user before reset
+  localStorage.clear();
+
+  // not using MERILL_CLASSROOM here to avoid bug of playerPos not being set to correct coords
+  playerPos = leaflet.latLng({
+    lat: 36.9995,
+    lng: -122.0533,
+  });
+
+  polylines.forEach((line) => line.remove());
+  playerPaths = [[]];
+  currentPolyline = leaflet.polyline(playerPaths, { color: "red" }).addTo(map);
+  polylines = [currentPolyline];
+
+  pointsDisplay.innerText = "No points yet...";
+  messages.innerText = "";
+  playerCoins = [];
+  momentos.clear();
+}
+
+// update color of bin based on number of coins inside geocache
 function updateBinColor(bin: leaflet.Rectangle, geocache: Geocache) {
   const minMid = 5;
   const maxMid = 10;
@@ -213,6 +226,7 @@ function updateBinColor(bin: leaflet.Rectangle, geocache: Geocache) {
   bin.setTooltipContent(`${numCoins} coins`);
 }
 
+//updates point display and saves momentos + playerCoins to localstorage
 function updateUI(container: HTMLDivElement, cell: Cell, geocache: Geocache) {
   container.querySelector<HTMLSpanElement>("#numCoins")!.innerText = `${geocache
     .getNumCoins()
@@ -250,7 +264,7 @@ function createButton(
   });
   return button;
 }
-
+// creates a pop up window for the bin at the cell using information stored in geocache
 function createPopUp(cell: Cell, bin: leaflet.Rectangle, geocache: Geocache) {
   {
     const container = document.createElement("div");

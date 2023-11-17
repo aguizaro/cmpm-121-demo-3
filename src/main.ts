@@ -144,6 +144,7 @@ function drawLivePosition() {
           color: "red",
         })
         .addTo(map);
+      polylines.push(currentPolyline);
 
       updateMap();
       map.setZoom(MAX_ZOOM);
@@ -155,7 +156,7 @@ function drawLivePosition() {
 
 function addPointToPlayerPath(pos: leaflet.LatLng) {
   playerPaths[playerPaths.length - 1].push(leaflet.latLng(pos.lat, pos.lng));
-  currentPolyline.addLatLng(leaflet.latLng(playerPos.lat, playerPos.lng));
+  currentPolyline.addLatLng(leaflet.latLng(pos.lat, pos.lng));
 
   // save playerPos and playerPaths to local storage
   localStorage.setItem("playerPos", JSON.stringify(playerPos));
@@ -211,6 +212,9 @@ function resetMap() {
   messages.innerText = "";
   playerCoins = [];
   momentos.clear();
+
+  console.log(playerPaths);
+  console.log(polylines);
 }
 
 // update color of bin based on number of coins inside geocache
@@ -381,7 +385,7 @@ let playerPos: leaflet.LatLng;
 
 let playerPaths: leaflet.LatLng[][] = [[]];
 let polylines: leaflet.Polyline[] = [];
-let currentPolyline: leaflet.Polyline = leaflet.polyline([]);
+let currentPolyline: leaflet.Polyline;
 
 //recover player state from localstorage if available
 const cachedPlayerCoins = localStorage.getItem("playerCoins");
@@ -397,23 +401,25 @@ if (cachedPlayerCoins != null) {
 if (cachedPlayerPos != null) {
   playerPos = JSON.parse(cachedPlayerPos) as LatLng;
 } else {
-  playerPos = MERRILL_CLASSROOM;
+  playerPos = leaflet.latLng(MERRILL_CLASSROOM);
 }
 if (cachedplayerPaths != null) {
   playerPaths = JSON.parse(cachedplayerPaths) as LatLng[][];
-
-  //draw all paths from playerPaths
-  playerPaths.forEach((path) => {
-    polylines.push(
-      leaflet
-        .polyline(path, {
-          color: "red",
-        })
-        .addTo(map)
-    );
-  });
-  currentPolyline = polylines[polylines.length - 1];
+} else {
+  playerPaths = [[leaflet.latLng({ lat: 36.9995, lng: -122.0533 })]];
 }
+
+//draw all paths from playerPaths
+playerPaths.forEach((path) => {
+  polylines.push(
+    leaflet
+      .polyline(path, {
+        color: "red",
+      })
+      .addTo(map)
+  );
+});
+currentPolyline = polylines[polylines.length - 1];
 
 let playerMarker = leaflet.marker(playerPos);
 
